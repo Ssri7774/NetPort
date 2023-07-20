@@ -1,0 +1,103 @@
+version: '3.9'
+networks:
+  netbox:
+    name: netbox
+    
+services:
+  config:
+    hostname: netbox
+    image: ghcr.io/linuxserver/netbox:latest
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - postgres
+    environment:
+      ALLOWED_HOST: ${ALLOWED_HOST}
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_NAME: ${DB_NAME}
+      FILE__DB_PASSWORD: /run/secrets/netbox-db-passwd
+      REDIS_DB_CACHE: ${REDIS_DB_CACHE}
+      REDIS_DB_TASK: ${REDIS_DB_TASK}
+      REDIS_HOST: ${REDIS_HOST}
+      FILE__REDIS_PASSWORD: /run/secrets/netbox-redis-passwd
+      REDIS_SSL: ${REDIS_SSL}
+      TZ: ${TZ}
+      PUID: ${PUID}
+      GUID: ${GUID}
+    networks:
+      netbox:
+        aliases:
+          - config # alias is to access the container using fixed name as the name of the container changes after update/restarting the container/stack (example: docker ps -q -f name=netbox_postgres)
+    ports:
+      - 1402:8000
+    volumes:
+      - config:/config
+      - media-files:/opt/netbox/netbox/media
+      - reports-files:/opt/netbox/netbox/reports
+      - scripts-files:/opt/netbox/netbox/scripts
+    secrets:
+      - netbox-db-passwd
+      - netbox-redis-passwd
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    hostname: redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+    command: sh -c 'redis-server --appendonly yes --requirepass $$(cat /run/secrets/netbox-redis-passwd)'
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/netbox-redis-passwd
+      TZ: ${TZ}
+    networks:
+      netbox:
+        aliases:
+          - redis
+    volumes:
+      - redis:/data
+    secrets:
+      - netbox-redis-passwd
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    hostname: postgres
+    healthcheck:
+      test: "pg_isready -t 2 -d netbox -U netbox"
+      timeout: 45s
+      interval: 10s
+      retries: 10
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/netbox-db-passwd
+      TZ: ${TZ}
+    networks:
+      netbox:
+        aliases:
+          - postgres
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    secrets:
+      - netbox-db-passwd
+
+volumes:
+  config:
+    driver: local
+  postgres:
+    driver: local
+  redis:
+    driver: local
+  media-files:
+    driver: local
+  reports-files:
+    driver: local
+  scripts-files:
+    driver: local
+
+secrets:
+  netbox-db-passwd:
+    external: true
+  netbox-redis-passwd:
+    external: true
